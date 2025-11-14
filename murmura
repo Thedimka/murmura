@@ -1,0 +1,332 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readonly PURPLE='\033[38;2;107;83;255m'
+readonly GREEN='\033[32m'
+readonly RED='\033[31m'
+readonly YELLOW='\033[33m'
+readonly CYAN='\033[36m'
+readonly RESET='\033[0m'
+readonly BOLD='\033[1m'
+
+get_hostname() {
+    hostname 2>/dev/null || echo "unknown"
+}
+
+get_os_version() {
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        echo "${PRETTY_NAME:-$NAME $VERSION}"
+    elif [[ -f /etc/redhat-release ]]; then
+        cat /etc/redhat-release
+    elif [[ -f /etc/debian_version ]]; then
+        echo "Debian $(cat /etc/debian_version)"
+    else
+        uname -s 2>/dev/null || echo "Unknown OS"
+    fi
+}
+
+detect_virtualization() {
+    local virt_type="Hardware"
+    
+    if command -v systemd-detect-virt &>/dev/null; then
+        local detected=$(systemd-detect-virt 2>/dev/null)
+        case "$detected" in
+            "none") virt_type="Hardware" ;;
+            "docker") virt_type="Container" ;;
+            "lxc"|"lxc-libvirt") virt_type="Container" ;;
+            "kvm"|"qemu") virt_type="VM" ;;
+            "vmware") virt_type="VM" ;;
+            "oracle") virt_type="VM" ;;
+            "xen") virt_type="VM" ;;
+            "microsoft") virt_type="VM" ;;
+            *) virt_type="VM" ;;
+        esac
+    elif [[ -f /proc/cpuinfo ]]; then
+        if grep -qi "hypervisor" /proc/cpuinfo 2>/dev/null; then
+            virt_type="VM"
+        elif grep -qi "vmware\|virtualbox\|qemu\|kvm\|xen" /proc/cpuinfo 2>/dev/null; then
+            virt_type="VM"
+        fi
+    fi
+    
+    if [[ -f /.dockerenv ]] || grep -q "docker" /proc/1/cgroup 2>/dev/null; then
+        virt_type="Container"
+    fi
+    
+    echo "$virt_type"
+}
+
+get_network_info() {
+    local interfaces=()
+    local interface_info=""
+    
+    if command -v ip &>/dev/null; then
+        while IFS= read -r line; do
+            if [[ $line =~ ^[0-9]+:\ ([^:@]+)[@:].*state\ UP ]]; then
+                local iface="${BASH_REMATCH[1]}"
+                if [[ $iface =~ ^(eth|eno|enp|wlan|wlp) ]]; then
+                    interfaces+=("$iface")
+                fi
+            fi
+        done < <(ip link show 2>/dev/null)
+    elif command -v ifconfig &>/dev/null; then
+        while IFS= read -r line; do
+            if [[ $line =~ ^([^:\ ]+): ]]; then
+                local iface="${BASH_REMATCH[1]}"
+                if [[ $iface =~ ^(eth|eno|enp|wlan|wlp) ]]; then
+                    interfaces+=("$iface")
+                fi
+            fi
+        done < <(ifconfig 2>/dev/null | grep "^[a-zA-Z]")
+    fi
+    
+    local gateway=$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}' || echo "unknown")
+    
+    for iface in "${interfaces[@]}"; do
+        local ip_addr=""
+        local iface_type="wired"
+        
+        if command -v ip &>/dev/null; then
+            ip_addr=$(ip addr show "$iface" 2>/dev/null | awk '/inet / && !/127\./ {gsub(/\/.*/, "", $2); print $2"/"$(NF-1)}' | head -1)
+        elif command -v ifconfig &>/dev/null; then
+            ip_addr=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}')
+            local netmask=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $4}')
+            if [[ -n "$ip_addr" && -n "$netmask" ]]; then
+                local cidr=$(netmask_to_cidr "$netmask")
+                ip_addr="${ip_addr}/${cidr}"
+            fi
+        fi
+        
+        if [[ $iface =~ wlan|wlp ]]; then
+            iface_type="wifi"
+        fi
+        
+        if [[ -n "$ip_addr" ]]; then
+            interface_info+="    $iface: $ip_addr → $gateway [$iface_type]\n"
+        fi
+    done
+    
+    echo -e "$interface_info"
+}
+
+netmask_to_cidr() {
+    local netmask="$1"
+    local cidr=0
+    IFS='.' read -ra octets <<< "$netmask"
+    for octet in "${octets[@]}"; do
+        case "$octet" in
+            255) cidr=$((cidr + 8)) ;;
+            254) cidr=$((cidr + 7)) ;;
+            252) cidr=$((cidr + 6)) ;;
+            248) cidr=$((cidr + 5)) ;;
+            240) cidr=$((cidr + 4)) ;;
+            224) cidr=$((cidr + 3)) ;;
+            192) cidr=$((cidr + 2)) ;;
+            128) cidr=$((cidr + 1)) ;;
+        esac
+    done
+    echo "$cidr"
+}
+
+get_cpu_info() {
+    local cores=""
+    local arch=""
+    
+    if command -v lscpu &>/dev/null; then
+        cores=$(lscpu 2>/dev/null | awk '/^CPU\(s\):/ {print $2}')
+        arch=$(lscpu 2>/dev/null | awk '/^Architecture:/ {print $2}')
+    elif [[ -f /proc/cpuinfo ]]; then
+        cores=$(grep -c "^processor" /proc/cpuinfo 2>/dev/null)
+        arch=$(uname -m 2>/dev/null)
+    else
+        cores=$(nproc 2>/dev/null || echo "unknown")
+        arch=$(uname -m 2>/dev/null || echo "unknown")
+    fi
+    
+    echo "${cores} cores (${arch})"
+}
+
+get_memory_info() {
+    if command -v free &>/dev/null; then
+        local mem_info=$(free -h 2>/dev/null | awk '/^Mem:/ {printf "%s (%s used, %s free)", $2, $3, $7}')
+        echo "$mem_info"
+    else
+        echo "Memory info unavailable"
+    fi
+}
+
+get_disk_info() {
+    local disk_info=""
+    local total_size=""
+    local data_free=""
+    
+    if command -v df &>/dev/null; then
+        local root_info=$(df -h / 2>/dev/null | awk 'NR==2 {print $2, $4}')
+        if [[ -n "$root_info" ]]; then
+            read -r total_size data_free <<< "$root_info"
+            disk_info="Disk: ${total_size} total"
+            disk_info+="\n          ${data_free} free"
+        fi
+    fi
+    
+    if [[ -z "$disk_info" ]]; then
+        disk_info="Disk: Information unavailable"
+    fi
+    
+    echo -e "$disk_info"
+}
+
+get_users() {
+    local users=""
+    if [[ -f /etc/passwd ]]; then
+        while IFS=: read -r username _ uid _ _ home _; do
+            if [[ $uid -ge 1000 ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
+                if [[ -n "$users" ]]; then
+                    users+=", "
+                fi
+                users+="$username"
+            fi
+        done < /etc/passwd
+    fi
+    echo "${users:-No users found}"
+}
+
+check_service_status() {
+    local service="$1"
+    local process_names=("${@:2}")
+    
+    if command -v systemctl &>/dev/null && systemctl list-unit-files 2>/dev/null | grep -q "^${service}\.service"; then
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    for proc_name in "${process_names[@]}"; do
+        if pgrep -f "$proc_name" &>/dev/null; then
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+check_port_listening() {
+    local ports=("$@")
+    for port in "${ports[@]}"; do
+        if command -v ss &>/dev/null; then
+            if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+                return 0
+            fi
+        elif command -v netstat &>/dev/null; then
+            if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+get_services_status() {
+    local services=(
+        "docker:docker"
+        "mysql:mysqld mysql"
+        "postgresql:postgres"
+        "nginx:nginx"
+        "apache2:apache2 httpd"
+        "nodejs:node"
+        "passenger:passenger"
+        "nextjs:next"
+    )
+    
+    local status_lines=()
+    
+    for service_def in "${services[@]}"; do
+        IFS=':' read -r service_name process_names <<< "$service_def"
+        IFS=' ' read -ra processes <<< "$process_names"
+        
+        local status="✗"
+        local color="$RED"
+        
+        if check_service_status "$service_name" "${processes[@]}"; then
+            status="✓"
+            color="$GREEN"
+        elif [[ "$service_name" == "nodejs" ]] && check_port_listening "3000" "3001" "8000" "8080"; then
+            status="✓"
+            color="$GREEN"
+        elif [[ "$service_name" == "nextjs" ]] && check_port_listening "3000" "3001"; then
+            status="✓"
+            color="$GREEN"
+        fi
+        
+        local display_name=""
+        case "$service_name" in
+            "docker") display_name="Docker" ;;
+            "mysql") display_name="MySQL" ;;
+            "postgresql") display_name="PostgreSQL" ;;
+            "nginx") display_name="NGINX" ;;
+            "apache2") display_name="Apache" ;;
+            "nodejs") display_name="Node.js" ;;
+            "passenger") display_name="Passenger" ;;
+            "nextjs") display_name="Next.js" ;;
+        esac
+        
+        status_lines+=("${color}${status} ${display_name}${RESET}")
+    done
+    
+    local line1="${status_lines[0]}        ${status_lines[1]}    ${status_lines[2]}"
+    local line2="${status_lines[3]}         ${status_lines[4]}       ${status_lines[5]}"
+    local line3="${status_lines[6]}     ${status_lines[7]}"
+    
+    echo -e "    $line1"
+    echo -e "    $line2"
+    echo -e "    $line3"
+}
+
+get_timestamp() {
+    date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || date
+}
+
+main() {
+    local hostname=$(get_hostname)
+    local os_version=$(get_os_version)
+    local virt_type=$(detect_virtualization)
+    local timestamp=$(get_timestamp)
+    local network_info=$(get_network_info)
+    local cpu_info=$(get_cpu_info)
+    local memory_info=$(get_memory_info)
+    local disk_info=$(get_disk_info)
+    local users=$(get_users)
+    
+    echo -e "${PURPLE}${BOLD}░░░░░░░░░░░░ Murmura - FOSS System Info CLUI App ░░░░░░░░░░░░${RESET}"
+    echo -e "╔═══════════════════════════════════════════════════════════╗"
+    echo -e "║  ${CYAN}${hostname}${RESET}                                    ${os_version}   ║"
+    echo -e "║  ${CYAN}[${virt_type}]${RESET}                     ${timestamp}   ║"
+    echo -e "╠═══════════════════════════════════════════════════════════╣"
+    echo -e "║  ${CYAN}Network${RESET}                                                  ║"
+    if [[ -n "$network_info" ]]; then
+        echo -e "║$(printf "%-60s" "$network_info")║"
+    else
+        echo -e "║    No network interfaces found                             ║"
+    fi
+    echo -e "║                                                           ║"
+    echo -e "║  ${CYAN}Resources${RESET}                                                ║"
+    echo -e "║    CPU: $cpu_info                                  ║"
+    echo -e "║    RAM: $memory_info                       ║"
+    while IFS= read -r disk_line; do
+        echo -e "║    $(printf "%-55s" "$disk_line")║"
+    done <<< "$disk_info"
+    echo -e "║                                                           ║"
+    echo -e "║  ${CYAN}Users:${RESET} $users                               ║"
+    echo -e "║                                                           ║"
+    echo -e "║  ${CYAN}Services${RESET}                                                 ║"
+    get_services_status | while IFS= read -r line; do
+        echo -e "║$(printf "%-60s" "$line")║"
+    done
+    echo -e "╚═══════════════════════════════════════════════════════════╝"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
