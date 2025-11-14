@@ -113,6 +113,4 @@ main() {
     echo "3. Or add $INSTALL_DIR to your PATH"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+main "$@"
