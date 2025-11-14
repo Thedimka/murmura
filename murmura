@@ -89,7 +89,7 @@ get_network_info() {
         local iface_type="wired"
         
         if command -v ip &>/dev/null; then
-            ip_addr=$(ip addr show "$iface" 2>/dev/null | awk '/inet / && !/127\./ {gsub(/\/.*/, "", $2); print $2"/"$(NF-1)}' | head -1)
+            ip_addr=$(ip addr show "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}' | head -1)
         elif command -v ifconfig &>/dev/null; then
             ip_addr=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}')
             local netmask=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $4}')
@@ -179,18 +179,38 @@ get_disk_info() {
 }
 
 get_users() {
-    local users=""
+    local users=()
     if [[ -f /etc/passwd ]]; then
         while IFS=: read -r username _ uid _ _ home _; do
             if [[ $uid -ge 1000 ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
-                if [[ -n "$users" ]]; then
-                    users+=", "
-                fi
-                users+="$username"
+                users+=("$username")
             fi
         done < /etc/passwd
     fi
-    echo "${users:-No users found}"
+    
+    local count=${#users[@]}
+    if [[ $count -eq 0 ]]; then
+        echo "No users found"
+    elif [[ $count -le 4 ]]; then
+        local user_list=""
+        for user in "${users[@]}"; do
+            if [[ -n "$user_list" ]]; then
+                user_list+=", "
+            fi
+            user_list+="$user"
+        done
+        echo "$user_list"
+    else
+        local user_list=""
+        for i in {0..3}; do
+            if [[ -n "$user_list" ]]; then
+                user_list+=", "
+            fi
+            user_list+="${users[i]}"
+        done
+        user_list+=", and $((count - 4)) more"
+        echo "$user_list"
+    fi
 }
 
 check_service_status() {
@@ -275,13 +295,9 @@ get_services_status() {
         status_lines+=("${color}${status} ${display_name}${RESET}")
     done
     
-    local line1="${status_lines[0]}        ${status_lines[1]}    ${status_lines[2]}"
-    local line2="${status_lines[3]}         ${status_lines[4]}       ${status_lines[5]}"
-    local line3="${status_lines[6]}     ${status_lines[7]}"
-    
-    echo -e "    $line1"
-    echo -e "    $line2"
-    echo -e "    $line3"
+    printf "    %-15s %-13s %s\n" "${status_lines[0]}" "${status_lines[1]}" "${status_lines[2]}"
+    printf "    %-15s %-13s %s\n" "${status_lines[3]}" "${status_lines[4]}" "${status_lines[5]}"
+    printf "    %-15s %s\n" "${status_lines[6]}" "${status_lines[7]}"
 }
 
 get_timestamp() {
@@ -301,8 +317,8 @@ main() {
     
     echo -e "${PURPLE}${BOLD}░░░░░░░░░░░░ Murmura - FOSS System Info CLUI App ░░░░░░░░░░░░${RESET}"
     echo -e "╔═══════════════════════════════════════════════════════════╗"
-    echo -e "║  ${CYAN}${hostname}${RESET}                                    ${os_version}   ║"
-    echo -e "║  ${CYAN}[${virt_type}]${RESET}                     ${timestamp}   ║"
+    echo -e "║  ${CYAN}${hostname}${RESET}$(printf "%*s" $((53 - ${#hostname})) "")${os_version} ║"
+    echo -e "║  ${CYAN}[${virt_type}]${RESET}$(printf "%*s" $((55 - ${#virt_type})) "")${timestamp} ║"
     echo -e "╠═══════════════════════════════════════════════════════════╣"
     echo -e "║  ${CYAN}Network${RESET}                                                  ║"
     if [[ -n "$network_info" ]]; then
@@ -318,7 +334,7 @@ main() {
         echo -e "║    $(printf "%-55s" "$disk_line")║"
     done <<< "$disk_info"
     echo -e "║                                                           ║"
-    echo -e "║  ${CYAN}Users:${RESET} $users                               ║"
+    echo -e "║  ${CYAN}Users:${RESET} ${users}$(printf "%*s" $((51 - ${#users})) "") ║"
     echo -e "║                                                           ║"
     echo -e "║  ${CYAN}Services${RESET}                                                 ║"
     get_services_status | while IFS= read -r line; do
