@@ -41,14 +41,14 @@ A bash-based system information utility that displays server/system information 
 ### One-liner Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/USER/murmura/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Thedimka/murmura/master/install.sh | sudo bash
 ```
 
 ### Manual Installation
 
 1. Download the script:
    ```bash
-   wget https://raw.githubusercontent.com/USER/murmura/main/murmura
+   wget https://raw.githubusercontent.com/Thedimka/murmura/master/murmura
    ```
 
 2. Make it executable:
@@ -64,7 +64,7 @@ curl -sSL https://raw.githubusercontent.com/USER/murmura/main/install.sh | sudo 
 ### From Source
 
 ```bash
-git clone https://github.com/USER/murmura.git
+git clone https://github.com/Thedimka/murmura.git
 cd murmura
 sudo cp murmura /usr/local/bin/
 sudo chmod +x /usr/local/bin/murmura

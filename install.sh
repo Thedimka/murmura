@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_URL="https://raw.githubusercontent.com/USER/murmura/main/murmura"
+readonly SCRIPT_URL="https://raw.githubusercontent.com/Thedimka/murmura/master/murmura"
 readonly INSTALL_DIR="/usr/local/bin"
 readonly SCRIPT_NAME="murmura"
 readonly TEMP_DIR=$(mktemp -d)
