@@ -78,6 +78,34 @@ Simply run the command:
 murmura
 ```
 
+## Updating
+
+If you already have murmura installed and want to update to the latest version:
+
+### Automatic Update
+```bash
+curl -sSL https://raw.githubusercontent.com/Thedimka/murmura/master/install.sh | sudo bash
+```
+
+### Manual Update
+```bash
+# Download the latest version
+wget https://raw.githubusercontent.com/Thedimka/murmura/master/murmura -O /tmp/murmura
+
+# Replace the existing installation
+sudo cp /tmp/murmura /usr/local/bin/murmura
+sudo chmod +x /usr/local/bin/murmura
+
+# Clean up
+rm /tmp/murmura
+```
+
+### Check Version
+To see when your installation was last updated:
+```bash
+ls -la /usr/local/bin/murmura
+```
+
 ## What It Shows
 
 ### Header

@@ -57,8 +57,13 @@ download_script() {
 install_script() {
     local temp_script="$1"
     local install_path="$INSTALL_DIR/$SCRIPT_NAME"
+    local action="Installing"
     
-    echo "Installing murmura to $install_path..."
+    if [[ -f "$install_path" ]]; then
+        action="Updating"
+    fi
+    
+    echo "${action} murmura to $install_path..."
     
     if [[ ! -d "$INSTALL_DIR" ]]; then
         mkdir -p "$INSTALL_DIR"
@@ -104,7 +109,7 @@ main() {
     verify_installation "$install_path"
     
     echo
-    echo "Installation completed successfully!"
+    echo "Installation/Update completed successfully!"
     echo "You can now run: murmura"
     echo
     echo "If the command is not found, you may need to:"
