@@ -27,7 +27,7 @@ check_requirements() {
 download_script() {
     local temp_script="$TEMP_DIR/$SCRIPT_NAME"
     
-    echo "Downloading murmura script..."
+    echo "Downloading murmura script..." >&2
     
     if command -v curl &>/dev/null; then
         if ! curl -sSL "$SCRIPT_URL" -o "$temp_script"; then
@@ -63,7 +63,7 @@ install_script() {
         action="Updating"
     fi
     
-    echo "${action} murmura to $install_path..."
+    echo "${action} murmura to $install_path..." >&2
     
     if [[ ! -d "$INSTALL_DIR" ]]; then
         mkdir -p "$INSTALL_DIR"
