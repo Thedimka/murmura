@@ -6,7 +6,6 @@ readonly PURPLE='\033[38;2;107;83;255m'
 readonly GREEN='\033[32m'
 readonly RED='\033[31m'
 readonly YELLOW='\033[33m'
-readonly CYAN='\033[36m'
 readonly RESET='\033[0m'
 readonly BOLD='\033[1m'
 
@@ -213,6 +212,43 @@ get_users() {
     fi
 }
 
+get_users_formatted() {
+    local users=()
+    if [[ -f /etc/passwd ]]; then
+        while IFS=: read -r username _ uid _ _ home _; do
+            if [[ $uid -ge 1000 ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
+                users+=("$username")
+            fi
+        done < /etc/passwd
+    fi
+    
+    local count=${#users[@]}
+    if [[ $count -eq 0 ]]; then
+        echo "No users found"
+        return
+    fi
+    
+    local line=""
+    local line_count=0
+    for i in "${!users[@]}"; do
+        if [[ $line_count -eq 4 ]]; then
+            echo "$line"
+            line=""
+            line_count=0
+        fi
+        
+        if [[ -n "$line" ]]; then
+            line+=", "
+        fi
+        line+="${users[i]}"
+        ((line_count++))
+    done
+    
+    if [[ -n "$line" ]]; then
+        echo "$line"
+    fi
+}
+
 check_service_status() {
     local service="$1"
     local process_names=("${@:2}")
@@ -295,9 +331,8 @@ get_services_status() {
         status_lines+=("${color}${status} ${display_name}${RESET}")
     done
     
-    printf "    %-15s %-13s %s\n" "${status_lines[0]}" "${status_lines[1]}" "${status_lines[2]}"
-    printf "    %-15s %-13s %s\n" "${status_lines[3]}" "${status_lines[4]}" "${status_lines[5]}"
-    printf "    %-15s %s\n" "${status_lines[6]}" "${status_lines[7]}"
+    printf "    %-18s %-18s %-18s %s\n" "${status_lines[0]}" "${status_lines[1]}" "${status_lines[2]}" "${status_lines[3]}"
+    printf "    %-18s %-18s %-18s %s\n" "${status_lines[4]}" "${status_lines[5]}" "${status_lines[6]}" "${status_lines[7]}"
 }
 
 get_timestamp() {
@@ -315,32 +350,41 @@ main() {
     local disk_info=$(get_disk_info)
     local users=$(get_users)
     
-    echo -e "${PURPLE}${BOLD}░░░░░░░░░░░░ Murmura - FOSS System Info CLUI App ░░░░░░░░░░░░${RESET}"
-    echo -e "╔═══════════════════════════════════════════════════════════╗"
-    echo -e "║  ${CYAN}${hostname}${RESET}$(printf "%*s" $((53 - ${#hostname})) "")${os_version} ║"
-    echo -e "║  ${CYAN}[${virt_type}]${RESET}$(printf "%*s" $((55 - ${#virt_type})) "")${timestamp} ║"
-    echo -e "╠═══════════════════════════════════════════════════════════╣"
-    echo -e "║  ${CYAN}Network${RESET}                                                  ║"
+    echo -e "${PURPLE}${BOLD}░░░░░░░░░░░░░░░░░░ Murmura - FOSS System Info CLUI App ░░░░░░░░░░░░░░░░░░${RESET}"
+    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}$(printf "%*s" $((70 - ${#hostname})) "")${os_version} ${PURPLE}║${RESET}"
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}$(printf "%*s" $((72 - ${#virt_type})) "")${timestamp} ${PURPLE}║${RESET}"
+    echo -e "${PURPLE}╠══════════════════════════════════════════════════════════════════════════════╣${RESET}"
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}Network${RESET}                                                                 ${PURPLE}║${RESET}"
     if [[ -n "$network_info" ]]; then
-        echo -e "║$(printf "%-60s" "$network_info")║"
+        echo -e "${PURPLE}║${RESET}$(printf "%-77s" "$network_info")${PURPLE}║${RESET}"
     else
-        echo -e "║    No network interfaces found                             ║"
+        echo -e "${PURPLE}║${RESET}    No network interfaces found$(printf "%*s" 44 "")${PURPLE}║${RESET}"
     fi
-    echo -e "║                                                           ║"
-    echo -e "║  ${CYAN}Resources${RESET}                                                ║"
-    echo -e "║    CPU: $cpu_info                                  ║"
-    echo -e "║    RAM: $memory_info                       ║"
+    echo -e "${PURPLE}║${RESET}$(printf "%78s" "")${PURPLE}║${RESET}"
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}Resources${RESET}$(printf "%*s" 66 "")${PURPLE}║${RESET}"
+    echo -e "${PURPLE}║${RESET}    CPU: $cpu_info$(printf "%*s" $((70 - 10 - ${#cpu_info})) "")${PURPLE}║${RESET}"
+    echo -e "${PURPLE}║${RESET}    RAM: $memory_info$(printf "%*s" $((70 - 10 - ${#memory_info})) "")${PURPLE}║${RESET}"
     while IFS= read -r disk_line; do
-        echo -e "║    $(printf "%-55s" "$disk_line")║"
+        echo -e "${PURPLE}║${RESET}    $(printf "%-70s" "$disk_line")${PURPLE}║${RESET}"
     done <<< "$disk_info"
-    echo -e "║                                                           ║"
-    echo -e "║  ${CYAN}Users:${RESET} ${users}$(printf "%*s" $((51 - ${#users})) "") ║"
-    echo -e "║                                                           ║"
-    echo -e "║  ${CYAN}Services${RESET}                                                 ║"
+    echo -e "${PURPLE}║${RESET}$(printf "%78s" "")${PURPLE}║${RESET}"
+    
+    local user_lines
+    user_lines=$(get_users_formatted)
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}Users:${RESET}$(printf "%*s" 69 "")${PURPLE}║${RESET}"
+    while IFS= read -r user_line; do
+        if [[ -n "$user_line" ]]; then
+            echo -e "${PURPLE}║${RESET}    $(printf "%-70s" "$user_line")${PURPLE}║${RESET}"
+        fi
+    done <<< "$user_lines"
+    
+    echo -e "${PURPLE}║${RESET}$(printf "%78s" "")${PURPLE}║${RESET}"
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}Services${RESET}$(printf "%*s" 66 "")${PURPLE}║${RESET}"
     get_services_status | while IFS= read -r line; do
-        echo -e "║$(printf "%-60s" "$line")║"
+        echo -e "${PURPLE}║${RESET}$(printf "%-77s" "$line")${PURPLE}║${RESET}"
     done
-    echo -e "╚═══════════════════════════════════════════════════════════╝"
+    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${RESET}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
