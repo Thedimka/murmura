@@ -298,14 +298,19 @@ load_service_config() {
     fi
 
     local default_services=(
+        "apache2"
+        "nginx"
+        "rsyslog"
+        "fail2ban"
         "docker"
+        "ftp"
+        "sftp"
         "mysql"
         "postgresql"
-        "nginx"
-        "apache2"
         "nodejs"
         "passenger"
         "nextjs"
+        "pnpm"
     )
 
     if [[ -n "$config_file" && -f "$config_file" ]]; then
@@ -323,21 +328,30 @@ load_service_config() {
 
 get_all_services() {
     cat << 'EOF'
+apache2:apache2 httpd:Apache
+nginx:nginx:NGINX
+rsyslog:rsyslog:Rsyslog
+fail2ban:fail2ban-server:Fail2ban
 docker:docker:Docker
+ftp:vsftpd proftpd pure-ftpd:FTP
+sftp:sshd:SFTP
 mysql:mysqld mysql:MySQL
 postgresql:postgres:PostgreSQL
-nginx:nginx:NGINX
-apache2:apache2 httpd:Apache
 nodejs:node:Node.js
 passenger:passenger:Passenger
 nextjs:next:Next.js
-rsyslog:rsyslog:Rsyslog
+pnpm:pnpm:PNPM
 uptime-kuma:uptime-kuma:Kuma
-fail2ban:fail2ban-server:Fail2ban
 ufw:ufw:UFW
-ftp:vsftpd proftpd pure-ftpd:FTP
-sftp:sshd:SFTP
 dns:named bind dnsmasq:DNS
+redis:redis-server:Redis
+mongodb:mongod:MongoDB
+elasticsearch:elasticsearch:Elasticsearch
+rabbitmq:rabbitmq-server:RabbitMQ
+mariadb:mariadb mysqld_safe:MariaDB
+ssh:sshd:SSH
+firewalld:firewalld:Firewalld
+haproxy:haproxy:HAProxy
 EOF
 }
 
