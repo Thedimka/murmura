@@ -626,14 +626,14 @@ main() {
     local svc_header="Services"
     local svc_padding=$((CONTENT_WIDTH - ${#svc_header} - 2))
     printf "${PURPLE}║${RESET}  ${PURPLE}${svc_header}${RESET}%*s${PURPLE}║${RESET}\n" $svc_padding ""
-    get_services_status | while IFS= read -r line; do
+    get_services_status | while IFS= read -r svc_line; do
         # Strip ANSI codes to calculate actual display width
-        local line_display="$(echo -n "$line" | sed 's/\x1b\[[0-9;]*m//g')"
-        local line_len=${#line_display}
-        local padding=$((CONTENT_WIDTH - 4 - line_len))
+        svc_display=$(echo -n "$svc_line" | sed 's/\x1b\[[0-9;]*m//g')
+        svc_len=${#svc_display}
+        svc_padding=$((CONTENT_WIDTH - 4 - svc_len))
         printf "${PURPLE}║${RESET}    "
-        echo -ne "$line"  # Use echo -ne to interpret ANSI codes
-        printf '%*s' "$padding" ''
+        echo -ne "$svc_line"
+        printf '%*s' "$svc_padding" ''
         printf "${PURPLE}║${RESET}\n"
     done
     
