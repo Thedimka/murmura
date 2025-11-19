@@ -78,9 +78,37 @@ Simply run the command:
 murmura
 ```
 
+### Service configuration (optional)
+- Create `~/.config/murmura/services.conf` (user) or `/etc/murmura/services.conf` (system)
+- Put one service key per line. If no config exists, the default 8 services are used.
+- See available keys with:
+
+```bash
+murmura list-services
+```
+
+Example `services.conf` enabling some optional services:
+
+```ini
+# Defaults (enabled if no config file): docker, mysql, postgresql, nginx, apache2, nodejs, passenger, nextjs
+# Optional examples:
+rsyslog
+uptime-kuma
+fail2ban
+ufw
+ftp
+sftp
+dns
+```
+
 ## Updating
 
 If you already have murmura installed and want to update to the latest version:
+
+### CLI Update (recommended)
+```bash
+sudo murmura update
+```
 
 ### Automatic Update
 ```bash
@@ -101,7 +129,11 @@ rm /tmp/murmura
 ```
 
 ### Check Version
-To see when your installation was last updated:
+```bash
+murmura --version
+```
+
+Alternatively, to see the file timestamp directly:
 ```bash
 ls -la /usr/local/bin/murmura
 ```

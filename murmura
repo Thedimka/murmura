@@ -287,27 +287,93 @@ check_port_listening() {
     return 1
 }
 
-get_services_status() {
-    local services=(
-        "docker:docker"
-        "mysql:mysqld mysql"
-        "postgresql:postgres"
-        "nginx:nginx"
-        "apache2:apache2 httpd"
-        "nodejs:node"
-        "passenger:passenger"
-        "nextjs:next"
+load_service_config() {
+    local config_file="${1:-}"
+    if [[ -z "$config_file" ]]; then
+        if [[ -f "$HOME/.config/murmura/services.conf" ]]; then
+            config_file="$HOME/.config/murmura/services.conf"
+        elif [[ -f "/etc/murmura/services.conf" ]]; then
+            config_file="/etc/murmura/services.conf"
+        fi
+    fi
+
+    local default_services=(
+        "docker"
+        "mysql"
+        "postgresql"
+        "nginx"
+        "apache2"
+        "nodejs"
+        "passenger"
+        "nextjs"
     )
-    
+
+    if [[ -n "$config_file" && -f "$config_file" ]]; then
+        local enabled_services=()
+        while IFS= read -r line; do
+            line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [[ -z "$line" || "$line" =~ ^# ]] && continue
+            enabled_services+=("$line")
+        done < "$config_file"
+        printf '%s\n' "${enabled_services[@]}"
+    else
+        printf '%s\n' "${default_services[@]}"
+    fi
+}
+
+get_all_services() {
+    cat << 'EOF'
+docker:docker:Docker
+mysql:mysqld mysql:MySQL
+postgresql:postgres:PostgreSQL
+nginx:nginx:NGINX
+apache2:apache2 httpd:Apache
+nodejs:node:Node.js
+passenger:passenger:Passenger
+nextjs:next:Next.js
+rsyslog:rsyslog:Rsyslog
+uptime-kuma:uptime-kuma:Kuma
+fail2ban:fail2ban-server:Fail2ban
+ufw:ufw:UFW
+ftp:vsftpd proftpd pure-ftpd:FTP
+sftp:sshd:SFTP
+dns:named bind dnsmasq:DNS
+EOF
+}
+
+list_services() {
+    get_all_services | while IFS=':' read -r svc procs name; do
+        printf "%s\t%s\n" "$svc" "$name"
+    done | sort
+}
+
+get_services_status() {
+    local -a enabled_services
+    mapfile -t enabled_services < <(load_service_config)
+
+    local -a all_services_data
+    mapfile -t all_services_data < <(get_all_services)
+
+    declare -A service_map
+    for service_line in "${all_services_data[@]}"; do
+        IFS=':' read -r service_name process_names display_name <<< "$service_line"
+        service_map["$service_name"]="$process_names:$display_name"
+    done
+
     local status_lines=()
-    
-    for service_def in "${services[@]}"; do
-        IFS=':' read -r service_name process_names <<< "$service_def"
+
+    for service_name in "${enabled_services[@]}"; do
+        service_name=$(echo "$service_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$service_name" ]] && continue
+        [[ -z "${service_map["$service_name"]+x}" ]] && continue
+
+        local service_data="${service_map[$service_name]}"
+        IFS=':' read -r process_names display_name <<< "$service_data"
         IFS=' ' read -ra processes <<< "$process_names"
-        
+
         local status="✗"
         local color="$RED"
-        
+
         if check_service_status "$service_name" "${processes[@]}"; then
             status="✓"
             color="$GREEN"
@@ -317,32 +383,152 @@ get_services_status() {
         elif [[ "$service_name" == "nextjs" ]] && check_port_listening "3000" "3001"; then
             status="✓"
             color="$GREEN"
+        elif [[ "$service_name" == "uptime-kuma" ]] && check_port_listening "3001" "3000"; then
+            status="✓"
+            color="$GREEN"
         fi
-        
-        local display_name=""
-        case "$service_name" in
-            "docker") display_name="Docker" ;;
-            "mysql") display_name="MySQL" ;;
-            "postgresql") display_name="PostgreSQL" ;;
-            "nginx") display_name="NGINX" ;;
-            "apache2") display_name="Apache" ;;
-            "nodejs") display_name="Node.js" ;;
-            "passenger") display_name="Passenger" ;;
-            "nextjs") display_name="Next.js" ;;
-        esac
-        
+
         status_lines+=("${color}${status} ${display_name}${RESET}")
     done
-    
-    printf "    %-18s %-18s %-18s %s\n" "${status_lines[0]}" "${status_lines[1]}" "${status_lines[2]}" "${status_lines[3]}"
-    printf "    %-18s %-18s %-18s %s\n" "${status_lines[4]}" "${status_lines[5]}" "${status_lines[6]}" "${status_lines[7]}"
+
+    local line_count=${#status_lines[@]}
+    for ((i=0; i<line_count; i+=4)); do
+        printf "    %-18s %-18s %-18s %s\n" \
+            "${status_lines[i]:-}" \
+            "${status_lines[i+1]:-}" \
+            "${status_lines[i+2]:-}" \
+            "${status_lines[i+3]:-}"
+    done
 }
 
 get_timestamp() {
     date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || date
 }
 
+show_help() {
+    cat << 'EOF'
+Usage: murmura [COMMAND]
+
+Commands:
+  (no command)      Display system information (default)
+  update            Update murmura to the latest version
+  list-services     List all known services that can be monitored
+  --help, -h        Show this help message
+  --version, -v     Show version information
+
+Configuration:
+  Create a file at ~/.config/murmura/services.conf (or /etc/murmura/services.conf)
+  listing one service per line to control which services are shown.
+  If no config exists, the default 8 services are used.
+
+Examples:
+  murmura                  # Show system info
+  murmura update           # Update to latest version
+  murmura list-services    # See available service keys
+  echo -e "docker\nnginx\nrsyslog\nfail2ban" > ~/.config/murmura/services.conf
+EOF
+}
+
+get_version() {
+    if [[ -x /usr/local/bin/murmura ]]; then
+        local install_date="unknown"
+        if stat -c '%y' /usr/local/bin/murmura >/dev/null 2>&1; then
+            install_date=$(stat -c '%y' /usr/local/bin/murmura | awk '{print $1}')
+        elif stat -f '%Sm' -t '%Y-%m-%d' /usr/local/bin/murmura >/dev/null 2>&1; then
+            install_date=$(stat -f '%Sm' -t '%Y-%m-%d' /usr/local/bin/murmura)
+        fi
+        echo "murmura (installed: ${install_date})"
+    else
+        echo "murmura (version: development)"
+    fi
+}
+
+check_requirements() {
+    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+        echo "${RED}Error: Either curl or wget is required for update${RESET}" >&2
+        return 1
+    fi
+    return 0
+}
+
+update_murmura() {
+    local script_url="https://raw.githubusercontent.com/Thedimka/murmura/master/murmura"
+    local install_path="/usr/local/bin/murmura"
+    local temp_dir
+    local temp_script
+
+    if [[ $EUID -ne 0 ]]; then
+        echo "${RED}Error: Update requires root privileges. Please run with sudo:${RESET}" >&2
+        echo "  sudo murmura update" >&2
+        return 1
+    fi
+
+    if ! check_requirements; then
+        return 1
+    fi
+
+    echo "${YELLOW}Checking for updates...${RESET}"
+
+    temp_dir=$(mktemp -d) || {
+        echo "${RED}Error: Failed to create temporary directory${RESET}" >&2
+        return 1
+    }
+    temp_script="$temp_dir/murmura"
+    trap "rm -rf '$temp_dir'" EXIT
+
+    echo "${YELLOW}Downloading latest version...${RESET}"
+    if command -v curl &>/dev/null; then
+        if ! curl -sSL "$script_url" -o "$temp_script"; then
+            echo "${RED}Error: Failed to download script${RESET}" >&2
+            return 1
+        fi
+    elif command -v wget &>/dev/null; then
+        if ! wget -q "$script_url" -O "$temp_script"; then
+            echo "${RED}Error: Failed to download script${RESET}" >&2
+            return 1
+        fi
+    fi
+
+    if [[ ! -f "$temp_script" ]] || [[ ! -s "$temp_script" ]]; then
+        echo "${RED}Error: Downloaded file is empty or missing${RESET}" >&2
+        return 1
+    fi
+
+    if ! head -1 "$temp_script" | grep -q "^#!/bin/bash"; then
+        echo "${RED}Error: Downloaded file does not appear to be a valid bash script${RESET}" >&2
+        return 1
+    fi
+
+    echo "${YELLOW}Installing update...${RESET}"
+    cp "$temp_script" "$install_path"
+    chmod +x "$install_path"
+
+    echo "${GREEN}✓ Successfully updated murmura!${RESET}"
+    echo "${GREEN}Run 'murmura' to see the latest system information.${RESET}"
+    return 0
+}
+
 main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        update)
+            update_murmura
+            return
+            ;;
+        list-services)
+            list_services
+            return
+            ;;
+        --help|-h)
+            show_help
+            return
+            ;;
+        --version|-v)
+            get_version
+            return
+            ;;
+    esac
+
     # Initialize terminal state - reset all attributes and set default background
     # This ensures consistent rendering regardless of terminal settings
     echo -ne '\033[0m\033[49m'
