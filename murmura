@@ -362,46 +362,52 @@ list_services() {
 }
 
 get_services_status() {
-    local -a enabled_services
-    mapfile -t enabled_services < <(load_service_config)
-
-    local -a all_services_data
-    mapfile -t all_services_data < <(get_all_services)
-
-    declare -A service_map
-    for service_line in "${all_services_data[@]}"; do
-        IFS=':' read -r service_name process_names display_name <<< "$service_line"
-        service_map["$service_name"]="$process_names:$display_name"
-    done
-
-    for service_name in "${enabled_services[@]}"; do
-        service_name=$(echo "$service_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        [[ -z "$service_name" ]] && continue
-        [[ -z "${service_map["$service_name"]+x}" ]] && continue
-
-        local service_data="${service_map[$service_name]}"
-        IFS=':' read -r process_names display_name <<< "$service_data"
+    local services_output=""
+    local col_count=0
+    local all_services_str=$(get_all_services)
+    
+    while IFS= read -r enabled_service; do
+        enabled_service=$(echo "$enabled_service" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$enabled_service" ]] && continue
+        
+        # Find service info
+        local service_info=$(echo "$all_services_str" | grep "^${enabled_service}:")
+        [[ -z "$service_info" ]] && continue
+        
+        IFS=':' read -r svc_name process_names display_name <<< "$service_info"
         IFS=' ' read -ra processes <<< "$process_names"
 
         local status="✗"
         local color="$RED"
 
-        if check_service_status "$service_name" "${processes[@]}"; then
+        if check_service_status "$svc_name" "${processes[@]}"; then
             status="✓"
             color="$GREEN"
-        elif [[ "$service_name" == "nodejs" ]] && check_port_listening "3000" "3001" "8000" "8080"; then
+        elif [[ "$svc_name" == "nodejs" ]] && check_port_listening "3000" "3001" "8000" "8080"; then
             status="✓"
             color="$GREEN"
-        elif [[ "$service_name" == "nextjs" ]] && check_port_listening "3000" "3001"; then
+        elif [[ "$svc_name" == "nextjs" ]] && check_port_listening "3000" "3001"; then
             status="✓"
             color="$GREEN"
-        elif [[ "$service_name" == "uptime-kuma" ]] && check_port_listening "3001" "3000"; then
+        elif [[ "$svc_name" == "uptime-kuma" ]] && check_port_listening "3001" "3000"; then
             status="✓"
             color="$GREEN"
         fi
 
-        echo "${color}${status}${RESET} ${display_name}"
-    done
+        if [[ $col_count -eq 3 ]]; then
+            services_output+="\n"
+            col_count=0
+        fi
+        
+        if [[ $col_count -gt 0 ]]; then
+            services_output+="  "
+        fi
+        
+        services_output+="${color}${status}${RESET} ${display_name}"
+        ((col_count++))
+    done < <(load_service_config)
+    
+    echo -e "$services_output"
 }
 
 get_timestamp() {
@@ -577,10 +583,8 @@ main() {
     
     echo -e "${PURPLE}║${RESET}$(printf "%78s" "")${PURPLE}║${RESET}"
     echo -e "${PURPLE}║${RESET}  ${PURPLE}Services${RESET}$(printf "%*s" 66 "")${PURPLE}║${RESET}"
-    
-    get_services_status | while read -r service_line; do
-        # Each line is one service status
-        echo -e "${PURPLE}║${RESET}    $(printf "%-70s" "$service_line")${PURPLE}║${RESET}"
+    get_services_status | while IFS= read -r line; do
+        echo -e "${PURPLE}║${RESET}    $(printf "%-70s" "$line")${PURPLE}║${RESET}"
     done
     
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${RESET}"
