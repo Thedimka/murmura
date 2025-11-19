@@ -462,44 +462,44 @@ update_murmura() {
         return 1
     fi
 
-    echo "${YELLOW}Checking for updates...${RESET}"
+    echo -e "${YELLOW}Checking for updates...${RESET}"
 
     temp_dir=$(mktemp -d) || {
-        echo "${RED}Error: Failed to create temporary directory${RESET}" >&2
+        echo -e "${RED}Error: Failed to create temporary directory${RESET}" >&2
         return 1
     }
     temp_script="$temp_dir/murmura"
     trap "rm -rf '$temp_dir'" EXIT
 
-    echo "${YELLOW}Downloading latest version...${RESET}"
+    echo -e "${YELLOW}Downloading latest version...${RESET}"
     if command -v curl &>/dev/null; then
         if ! curl -sSL "$script_url" -o "$temp_script"; then
-            echo "${RED}Error: Failed to download script${RESET}" >&2
+            echo -e "${RED}Error: Failed to download script${RESET}" >&2
             return 1
         fi
     elif command -v wget &>/dev/null; then
         if ! wget -q "$script_url" -O "$temp_script"; then
-            echo "${RED}Error: Failed to download script${RESET}" >&2
+            echo -e "${RED}Error: Failed to download script${RESET}" >&2
             return 1
         fi
     fi
 
     if [[ ! -f "$temp_script" ]] || [[ ! -s "$temp_script" ]]; then
-        echo "${RED}Error: Downloaded file is empty or missing${RESET}" >&2
+        echo -e "${RED}Error: Downloaded file is empty or missing${RESET}" >&2
         return 1
     fi
 
     if ! head -1 "$temp_script" | grep -q "^#!/bin/bash"; then
-        echo "${RED}Error: Downloaded file does not appear to be a valid bash script${RESET}" >&2
+        echo -e "${RED}Error: Downloaded file does not appear to be a valid bash script${RESET}" >&2
         return 1
     fi
 
-    echo "${YELLOW}Installing update...${RESET}"
+    echo -e "${YELLOW}Installing update...${RESET}"
     cp "$temp_script" "$install_path"
     chmod +x "$install_path"
 
-    echo "${GREEN}✓ Successfully updated murmura!${RESET}"
-    echo "${GREEN}Run 'murmura' to see the latest system information.${RESET}"
+    echo -e "${GREEN}✓ Successfully updated murmura!${RESET}"
+    echo -e "${GREEN}Run 'murmura' to see the latest system information.${RESET}"
     return 0
 }
 
