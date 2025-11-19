@@ -73,7 +73,7 @@ detect_virtualization() {
 }
 
 get_network_info() {
-    local interfaces=()
+    declare -a interfaces=()
     local interface_info=""
     
     if command -v ip &>/dev/null; then
@@ -97,6 +97,10 @@ get_network_info() {
     fi
     
     local gateway=$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}' || echo "unknown")
+    
+    if [[ ${#interfaces[@]} -eq 0 ]]; then
+        return
+    fi
     
     for iface in "${interfaces[@]}"; do
         local ip_addr=""
@@ -561,14 +565,18 @@ main() {
     printf "╗${RESET}\n"
     
     # Header: hostname and OS (right-aligned)
-    local os_len=${#os_version}
-    local left_space=$((CONTENT_WIDTH - os_len - 4))  # -4 for spacing
-    printf "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}%*s${os_version}  ${PURPLE}║${RESET}\n" $left_space ""
+    local hostname_plain=${hostname}
+    local left_space=$((CONTENT_WIDTH - ${#hostname_plain} - ${#os_version} - 4))
+    echo -ne "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}"
+    printf '%*s' "$left_space" ''
+    echo -e "${os_version}  ${PURPLE}║${RESET}"
     
     # Header: virtualization and timestamp (right-aligned)
-    local ts_len=${#timestamp}
-    local left_space2=$((CONTENT_WIDTH - ts_len - 6))  # -6 for spacing
-    printf "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}%*s${timestamp}  ${PURPLE}║${RESET}\n" $left_space2 ""
+    local virt_plain="[${virt_type}]"
+    local left_space2=$((CONTENT_WIDTH - ${#virt_plain} - ${#timestamp} - 4))
+    echo -ne "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}"
+    printf '%*s' "$left_space2" ''
+    echo -e "${timestamp}  ${PURPLE}║${RESET}"
     
     # Divider - dynamic width
     printf "${PURPLE}╠"
@@ -580,7 +588,9 @@ main() {
     local net_padding=$((CONTENT_WIDTH - ${#net_header} - 2))
     printf "${PURPLE}║${RESET}  ${PURPLE}${net_header}${RESET}%*s${PURPLE}║${RESET}\n" $net_padding ""
     if [[ -n "$network_info" ]]; then
-        echo -e "${PURPLE}║${RESET}$network_info${PURPLE}║${RESET}"
+        while IFS= read -r net_line; do
+            [[ -n "$net_line" ]] && printf "${PURPLE}║${RESET}%s${PURPLE}║${RESET}\n" "$net_line"
+        done <<< "$network_info"
     else
         printf "${PURPLE}║${RESET}    No network interfaces found%*s${PURPLE}║${RESET}\n" $((CONTENT_WIDTH - 29)) ""
     fi
@@ -615,7 +625,14 @@ main() {
     local svc_padding=$((CONTENT_WIDTH - ${#svc_header} - 2))
     printf "${PURPLE}║${RESET}  ${PURPLE}${svc_header}${RESET}%*s${PURPLE}║${RESET}\n" $svc_padding ""
     get_services_status | while IFS= read -r line; do
-        printf "${PURPLE}║${RESET}    %-$((CONTENT_WIDTH - 4))s${PURPLE}║${RESET}\n" "$line"
+        # Strip ANSI codes to calculate actual display width
+        local line_display="$(echo -n "$line" | sed 's/\x1b\[[0-9;]*m//g')"
+        local line_len=${#line_display}
+        local padding=$((CONTENT_WIDTH - 4 - line_len))
+        printf "${PURPLE}║${RESET}    "
+        echo -ne "$line"  # Use echo -ne to interpret ANSI codes
+        printf '%*s' "$padding" ''
+        printf "${PURPLE}║${RESET}\n"
     done
     
     # Bottom border - dynamic width
