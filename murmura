@@ -362,16 +362,12 @@ list_services() {
 }
 
 get_services_status() {
-    local services_output=""
-    local col_count=0
-    local all_services_str=$(get_all_services)
-    
-    while IFS= read -r enabled_service; do
+    load_service_config | while IFS= read -r enabled_service; do
         enabled_service=$(echo "$enabled_service" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         [[ -z "$enabled_service" ]] && continue
         
         # Find service info
-        local service_info=$(echo "$all_services_str" | grep "^${enabled_service}:")
+        local service_info=$(get_all_services | grep "^${enabled_service}:")
         [[ -z "$service_info" ]] && continue
         
         IFS=':' read -r svc_name process_names display_name <<< "$service_info"
@@ -394,20 +390,8 @@ get_services_status() {
             color="$GREEN"
         fi
 
-        if [[ $col_count -eq 3 ]]; then
-            services_output+="\n"
-            col_count=0
-        fi
-        
-        if [[ $col_count -gt 0 ]]; then
-            services_output+="  "
-        fi
-        
-        services_output+="${color}${status}${RESET} ${display_name}"
-        ((col_count++))
-    done < <(load_service_config)
-    
-    echo -e "$services_output"
+        echo "${color}${status}${RESET} ${display_name}"
+    done | awk 'NR%3{printf "%s  ", $0; next} {print $0}'
 }
 
 get_timestamp() {
@@ -428,7 +412,7 @@ Commands:
 Configuration:
   Create a file at ~/.config/murmura/services.conf (or /etc/murmura/services.conf)
   listing one service per line to control which services are shown.
-  If no config exists, the default 8 services are used.
+  If no config exists, the default 13 services are used.
 
 Examples:
   murmura                  # Show system info
