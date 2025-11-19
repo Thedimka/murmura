@@ -465,6 +465,8 @@ update_murmura() {
     local install_path="/usr/local/bin/murmura"
     local temp_dir
     local temp_script
+    # Add cache-busting parameter with current timestamp
+    local cache_bust="?t=$(date +%s)"
 
     if [[ $EUID -ne 0 ]]; then
         echo "${RED}Error: Update requires root privileges. Please run with sudo:${RESET}" >&2
@@ -487,12 +489,12 @@ update_murmura() {
 
     echo -e "${YELLOW}Downloading latest version...${RESET}"
     if command -v curl &>/dev/null; then
-        if ! curl -sSL "$script_url" -o "$temp_script"; then
+        if ! curl -sSL "${script_url}${cache_bust}" -o "$temp_script"; then
             echo -e "${RED}Error: Failed to download script${RESET}" >&2
             return 1
         fi
     elif command -v wget &>/dev/null; then
-        if ! wget -q "$script_url" -O "$temp_script"; then
+        if ! wget -q "${script_url}${cache_bust}" -O "$temp_script"; then
             echo -e "${RED}Error: Failed to download script${RESET}" >&2
             return 1
         fi
