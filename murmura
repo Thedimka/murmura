@@ -11,8 +11,18 @@ readonly RED='\033[38;5;196m'       # Color 196: #FF0000 (bright red)
 readonly YELLOW='\033[38;5;226m'    # Color 226: #FFFF00 (bright yellow)
 readonly RESET='\033[0m\033[49m'    # Reset all attributes + explicit default background
 readonly BOLD='\033[1m'
-readonly FRAME_WIDTH=80
-readonly CONTENT_WIDTH=76
+
+# Get terminal width, default to 80 if tput fails
+get_term_width() {
+    local width
+    width=$(tput cols 2>/dev/null) || width=80
+    [[ $width -lt 60 ]] && width=80  # Minimum sensible width
+    echo $width
+}
+
+readonly TERM_WIDTH=$(get_term_width)
+readonly FRAME_WIDTH=$TERM_WIDTH
+readonly CONTENT_WIDTH=$((FRAME_WIDTH - 2))
 
 get_hostname() {
     hostname 2>/dev/null || echo "unknown"
@@ -538,63 +548,80 @@ main() {
     local disk_info=$(get_disk_info)
     local users=$(get_users)
 
-    # Title bar
+    # Title bar with block characters
     local title="Murmura - FOSS System Info CLUI App"
-    echo -e "${PURPLE}${BOLD}$title${RESET}"
+    local title_len=${#title}
+    local padding=$(((FRAME_WIDTH - title_len) / 2))
+    local right_padding=$((FRAME_WIDTH - padding - title_len))
+    printf "${PURPLE}${BOLD}%*s%s%*s${RESET}\n" $padding "" "$title" $right_padding ""
     
-    # Top border  
-    echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════════════════════╗${RESET}"
+    # Top border - dynamic width
+    printf "${PURPLE}╔" 
+    printf '═%.0s' $(seq 1 $CONTENT_WIDTH)
+    printf "╗${RESET}\n"
     
-    # Header: hostname and OS (right-aligned OS version)
+    # Header: hostname and OS (right-aligned)
     local os_len=${#os_version}
-    local left_space=$((CONTENT_WIDTH - os_len - 2))
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}$(printf '%*s' $left_space "")${os_version} ${PURPLE}║${RESET}"
+    local left_space=$((CONTENT_WIDTH - os_len - 4))  # -4 for spacing
+    printf "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}%*s${os_version}  ${PURPLE}║${RESET}\n" $left_space ""
     
-    # Header: virtualization and timestamp (right-aligned timestamp)
+    # Header: virtualization and timestamp (right-aligned)
     local ts_len=${#timestamp}
-    local left_space2=$((CONTENT_WIDTH - ts_len - 4))
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}$(printf '%*s' $left_space2 "")${timestamp} ${PURPLE}║${RESET}"
+    local left_space2=$((CONTENT_WIDTH - ts_len - 6))  # -6 for spacing
+    printf "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}%*s${timestamp}  ${PURPLE}║${RESET}\n" $left_space2 ""
     
-    # Divider
-    echo -e "${PURPLE}╠═══════════════════════════════════════════════════════════════════════════════╣${RESET}"
+    # Divider - dynamic width
+    printf "${PURPLE}╠"
+    printf '═%.0s' $(seq 1 $CONTENT_WIDTH)
+    printf "╣${RESET}\n"
     
     # Network
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}Network${RESET}$(printf '%*s' 68 "")${PURPLE}║${RESET}"
+    local net_header="Network"
+    local net_padding=$((CONTENT_WIDTH - ${#net_header} - 2))
+    printf "${PURPLE}║${RESET}  ${PURPLE}${net_header}${RESET}%*s${PURPLE}║${RESET}\n" $net_padding ""
     if [[ -n "$network_info" ]]; then
         echo -e "${PURPLE}║${RESET}$network_info${PURPLE}║${RESET}"
     else
-        echo -e "${PURPLE}║${RESET}    No network interfaces found$(printf '%*s' 44 "")${PURPLE}║${RESET}"
+        printf "${PURPLE}║${RESET}    No network interfaces found%*s${PURPLE}║${RESET}\n" $((CONTENT_WIDTH - 29)) ""
     fi
-    echo -e "${PURPLE}║${RESET}$(printf '%78s' "")${PURPLE}║${RESET}"
+    printf "${PURPLE}║${RESET}%*s${PURPLE}║${RESET}\n" $CONTENT_WIDTH ""
     
     # Resources
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}Resources${RESET}$(printf '%*s' 66 "")${PURPLE}║${RESET}"
-    echo -e "${PURPLE}║${RESET}    CPU: $cpu_info$(printf '%*s' $((70 - 10 - ${#cpu_info})) "")${PURPLE}║${RESET}"
-    echo -e "${PURPLE}║${RESET}    RAM: $memory_info$(printf '%*s' $((70 - 10 - ${#memory_info})) "")${PURPLE}║${RESET}"
+    local res_header="Resources"
+    local res_padding=$((CONTENT_WIDTH - ${#res_header} - 2))
+    printf "${PURPLE}║${RESET}  ${PURPLE}${res_header}${RESET}%*s${PURPLE}║${RESET}\n" $res_padding ""
+    printf "${PURPLE}║${RESET}    CPU: ${cpu_info}%*s${PURPLE}║${RESET}\n" $((CONTENT_WIDTH - 10 - ${#cpu_info})) ""
+    printf "${PURPLE}║${RESET}    RAM: ${memory_info}%*s${PURPLE}║${RESET}\n" $((CONTENT_WIDTH - 10 - ${#memory_info})) ""
     while IFS= read -r disk_line; do
-        echo -e "${PURPLE}║${RESET}    $(printf '%-70s' "$disk_line")${PURPLE}║${RESET}"
+        printf "${PURPLE}║${RESET}    %-$((CONTENT_WIDTH - 4))s${PURPLE}║${RESET}\n" "$disk_line"
     done <<< "$disk_info"
-    echo -e "${PURPLE}║${RESET}$(printf '%78s' "")${PURPLE}║${RESET}"
+    printf "${PURPLE}║${RESET}%*s${PURPLE}║${RESET}\n" $CONTENT_WIDTH ""
     
     # Users
     local user_lines=$(get_users_formatted)
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}Users:${RESET}$(printf '%*s' 69 "")${PURPLE}║${RESET}"
+    local usr_header="Users:"
+    local usr_padding=$((CONTENT_WIDTH - ${#usr_header} - 2))
+    printf "${PURPLE}║${RESET}  ${PURPLE}${usr_header}${RESET}%*s${PURPLE}║${RESET}\n" $usr_padding ""
     while IFS= read -r user_line; do
         if [[ -n "$user_line" ]]; then
-            echo -e "${PURPLE}║${RESET}    $(printf '%-70s' "$user_line")${PURPLE}║${RESET}"
+            printf "${PURPLE}║${RESET}    %-$((CONTENT_WIDTH - 4))s${PURPLE}║${RESET}\n" "$user_line"
         fi
     done <<< "$user_lines"
     
-    echo -e "${PURPLE}║${RESET}$(printf '%78s' "")${PURPLE}║${RESET}"
+    printf "${PURPLE}║${RESET}%*s${PURPLE}║${RESET}\n" $CONTENT_WIDTH ""
     
     # Services
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}Services${RESET}$(printf '%*s' 66 "")${PURPLE}║${RESET}"
+    local svc_header="Services"
+    local svc_padding=$((CONTENT_WIDTH - ${#svc_header} - 2))
+    printf "${PURPLE}║${RESET}  ${PURPLE}${svc_header}${RESET}%*s${PURPLE}║${RESET}\n" $svc_padding ""
     get_services_status | while IFS= read -r line; do
-        echo -e "${PURPLE}║${RESET}    $(printf '%-70s' "$line")${PURPLE}║${RESET}"
+        printf "${PURPLE}║${RESET}    %-$((CONTENT_WIDTH - 4))s${PURPLE}║${RESET}\n" "$line"
     done
     
-    # Bottom border
-    echo -e "${PURPLE}╚═══════════════════════════════════════════════════════════════════════════════╝${RESET}"
+    # Bottom border - dynamic width
+    printf "${PURPLE}╚"
+    printf '═%.0s' $(seq 1 $CONTENT_WIDTH)
+    printf "╝${RESET}\n"
 
     # Final cleanup - ensure terminal is returned to normal state
     echo -ne '\033[0m'
