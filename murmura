@@ -545,11 +545,15 @@ main() {
     # Top border  
     echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════════════════════╗${RESET}"
     
-    # Header: hostname and OS
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}$(printf '%*s' $((70 - ${#hostname})) "")${os_version} ${PURPLE}║${RESET}"
+    # Header: hostname and OS (right-aligned OS version)
+    local os_len=${#os_version}
+    local left_space=$((CONTENT_WIDTH - os_len - 2))
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}$(printf '%*s' $left_space "")${os_version} ${PURPLE}║${RESET}"
     
-    # Header: virtualization and timestamp
-    echo -e "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}$(printf '%*s' $((72 - ${#virt_type})) "")${timestamp} ${PURPLE}║${RESET}"
+    # Header: virtualization and timestamp (right-aligned timestamp)
+    local ts_len=${#timestamp}
+    local left_space2=$((CONTENT_WIDTH - ts_len - 4))
+    echo -e "${PURPLE}║${RESET}  ${PURPLE}[${virt_type}]${RESET}$(printf '%*s' $left_space2 "")${timestamp} ${PURPLE}║${RESET}"
     
     # Divider
     echo -e "${PURPLE}╠═══════════════════════════════════════════════════════════════════════════════╣${RESET}"
