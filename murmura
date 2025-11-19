@@ -2,11 +2,14 @@
 
 set -euo pipefail
 
-readonly PURPLE='\033[38;2;107;83;255m'
-readonly GREEN='\033[32m'
-readonly RED='\033[31m'
-readonly YELLOW='\033[33m'
-readonly RESET='\033[0m'
+# Color definitions using 256-color palette for maximum compatibility
+# Format: \033[38;5;Nm sets foreground color, \033[49m ensures default background
+# This prevents terminal settings from interfering with colors
+readonly PURPLE='\033[38;5;99m'     # Color 99: #875FFF (close to original #6B53FF)
+readonly GREEN='\033[38;5;46m'      # Color 46: #00FF00 (bright green)
+readonly RED='\033[38;5;196m'       # Color 196: #FF0000 (bright red)
+readonly YELLOW='\033[38;5;226m'    # Color 226: #FFFF00 (bright yellow)
+readonly RESET='\033[0m\033[49m'    # Reset all attributes + explicit default background
 readonly BOLD='\033[1m'
 
 get_hostname() {
@@ -340,6 +343,10 @@ get_timestamp() {
 }
 
 main() {
+    # Initialize terminal state - reset all attributes and set default background
+    # This ensures consistent rendering regardless of terminal settings
+    echo -ne '\033[0m\033[49m'
+
     local hostname=$(get_hostname)
     local os_version=$(get_os_version)
     local virt_type=$(detect_virtualization)
@@ -349,7 +356,7 @@ main() {
     local memory_info=$(get_memory_info)
     local disk_info=$(get_disk_info)
     local users=$(get_users)
-    
+
     echo -e "${PURPLE}${BOLD}░░░░░░░░░░░░░░░░░░ Murmura - FOSS System Info CLUI App ░░░░░░░░░░░░░░░░░░${RESET}"
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════════════════╗${RESET}"
     echo -e "${PURPLE}║${RESET}  ${PURPLE}${hostname}${RESET}$(printf "%*s" $((70 - ${#hostname})) "")${os_version} ${PURPLE}║${RESET}"
@@ -385,6 +392,9 @@ main() {
         echo -e "${PURPLE}║${RESET}$(printf "%-77s" "$line")${PURPLE}║${RESET}"
     done
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${RESET}"
+
+    # Final cleanup - ensure terminal is returned to normal state
+    echo -ne '\033[0m'
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
