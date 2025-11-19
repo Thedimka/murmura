@@ -374,8 +374,6 @@ get_services_status() {
         service_map["$service_name"]="$process_names:$display_name"
     done
 
-    local status_lines=()
-
     for service_name in "${enabled_services[@]}"; do
         service_name=$(echo "$service_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         [[ -z "$service_name" ]] && continue
@@ -402,16 +400,7 @@ get_services_status() {
             color="$GREEN"
         fi
 
-        status_lines+=("${color}${status} ${display_name}${RESET}")
-    done
-
-    local line_count=${#status_lines[@]}
-    for ((i=0; i<line_count; i+=4)); do
-        printf "    %-18s %-18s %-18s %s\n" \
-            "${status_lines[i]:-}" \
-            "${status_lines[i+1]:-}" \
-            "${status_lines[i+2]:-}" \
-            "${status_lines[i+3]:-}"
+        echo "${color}${status}${RESET} ${display_name}"
     done
 }
 
@@ -588,9 +577,12 @@ main() {
     
     echo -e "${PURPLE}║${RESET}$(printf "%78s" "")${PURPLE}║${RESET}"
     echo -e "${PURPLE}║${RESET}  ${PURPLE}Services${RESET}$(printf "%*s" 66 "")${PURPLE}║${RESET}"
-    get_services_status | while IFS= read -r line; do
-        echo -e "${PURPLE}║${RESET}$(printf "%-77s" "$line")${PURPLE}║${RESET}"
+    
+    get_services_status | while read -r service_line; do
+        # Each line is one service status
+        echo -e "${PURPLE}║${RESET}    $(printf "%-70s" "$service_line")${PURPLE}║${RESET}"
     done
+    
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${RESET}"
 
     # Final cleanup - ensure terminal is returned to normal state
