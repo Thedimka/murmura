@@ -29,7 +29,14 @@ get_hostname() {
 }
 
 get_os_version() {
-    if [[ -f /etc/os-release ]]; then
+    local os_type=$(uname -s)
+
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS
+        local mac_version=$(sw_vers -productVersion 2>/dev/null)
+        local mac_name=$(sw_vers -productName 2>/dev/null)
+        echo "${mac_name} ${mac_version}"
+    elif [[ -f /etc/os-release ]]; then
         source /etc/os-release
         echo "${PRETTY_NAME:-$NAME $VERSION}"
     elif [[ -f /etc/redhat-release ]]; then
@@ -43,7 +50,8 @@ get_os_version() {
 
 detect_virtualization() {
     local virt_type="Hardware"
-    
+    local os_type=$(uname -s)
+
     if command -v systemd-detect-virt &>/dev/null; then
         local detected=$(systemd-detect-virt 2>/dev/null)
         case "$detected" in
@@ -57,6 +65,13 @@ detect_virtualization() {
             "microsoft") virt_type="VM" ;;
             *) virt_type="VM" ;;
         esac
+    elif [[ "$os_type" == "Darwin" ]]; then
+        # macOS virtualization detection
+        if sysctl -n machdep.cpu.features 2>/dev/null | grep -qi "hypervisor"; then
+            virt_type="VM"
+        elif system_profiler SPHardwareDataType 2>/dev/null | grep -qi "vmware\|parallels\|virtualbox"; then
+            virt_type="VM"
+        fi
     elif [[ -f /proc/cpuinfo ]]; then
         if grep -qi "hypervisor" /proc/cpuinfo 2>/dev/null; then
             virt_type="VM"
@@ -64,18 +79,19 @@ detect_virtualization() {
             virt_type="VM"
         fi
     fi
-    
+
     if [[ -f /.dockerenv ]] || grep -q "docker" /proc/1/cgroup 2>/dev/null; then
         virt_type="Container"
     fi
-    
+
     echo "$virt_type"
 }
 
 get_network_info() {
     declare -a interfaces=()
     local interface_info=""
-    
+    local os_type=$(uname -s)
+
     if command -v ip &>/dev/null; then
         while IFS= read -r line; do
             if [[ $line =~ ^[0-9]+:\ ([^:@]+)[@:].*state\ UP ]]; then
@@ -89,14 +105,27 @@ get_network_info() {
         while IFS= read -r line; do
             if [[ $line =~ ^([^:\ ]+): ]]; then
                 local iface="${BASH_REMATCH[1]}"
-                if [[ $iface =~ ^(eth|eno|enp|wlan|wlp) ]]; then
-                    interfaces+=("$iface")
+                # macOS: en0, en1, etc. for Ethernet/WiFi; Linux: eth*, eno*, enp*, wlan*, wlp*
+                if [[ "$os_type" == "Darwin" ]]; then
+                    if [[ $iface =~ ^en[0-9]+ ]]; then
+                        interfaces+=("$iface")
+                    fi
+                else
+                    if [[ $iface =~ ^(eth|eno|enp|wlan|wlp) ]]; then
+                        interfaces+=("$iface")
+                    fi
                 fi
             fi
         done < <(ifconfig 2>/dev/null | grep "^[a-zA-Z]")
     fi
-    
-    local gateway=$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}' || echo "unknown")
+
+    # Get gateway
+    local gateway
+    if [[ "$os_type" == "Darwin" ]]; then
+        gateway=$(netstat -rn 2>/dev/null | awk '/default/ {print $2; exit}' || echo "unknown")
+    else
+        gateway=$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}' || echo "unknown")
+    fi
     
     if [[ ${#interfaces[@]} -eq 0 ]]; then
         return
@@ -105,15 +134,30 @@ get_network_info() {
     for iface in "${interfaces[@]}"; do
         local ip_addr=""
         local iface_type="wired"
-        
+
         if command -v ip &>/dev/null; then
             ip_addr=$(ip addr show "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}' | head -1)
         elif command -v ifconfig &>/dev/null; then
-            ip_addr=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}')
-            local netmask=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $4}')
-            if [[ -n "$ip_addr" && -n "$netmask" ]]; then
-                local cidr=$(netmask_to_cidr "$netmask")
-                ip_addr="${ip_addr}/${cidr}"
+            if [[ "$os_type" == "Darwin" ]]; then
+                # macOS: ifconfig output is different
+                ip_addr=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}')
+                local netmask=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $4}' | sed 's/0x//')
+                if [[ -n "$ip_addr" && -n "$netmask" ]]; then
+                    # Convert hex netmask to dotted decimal then to CIDR
+                    local dec1=$((16#${netmask:0:2}))
+                    local dec2=$((16#${netmask:2:2}))
+                    local dec3=$((16#${netmask:4:2}))
+                    local dec4=$((16#${netmask:6:2}))
+                    local cidr=$(netmask_to_cidr "$dec1.$dec2.$dec3.$dec4")
+                    ip_addr="${ip_addr}/${cidr}"
+                fi
+            else
+                ip_addr=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $2}')
+                local netmask=$(ifconfig "$iface" 2>/dev/null | awk '/inet / && !/127\./ {print $4}')
+                if [[ -n "$ip_addr" && -n "$netmask" ]]; then
+                    local cidr=$(netmask_to_cidr "$netmask")
+                    ip_addr="${ip_addr}/${cidr}"
+                fi
             fi
         fi
         
@@ -151,8 +195,13 @@ netmask_to_cidr() {
 get_cpu_info() {
     local cores=""
     local arch=""
-    
-    if command -v lscpu &>/dev/null; then
+    local os_type=$(uname -s)
+
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS
+        cores=$(sysctl -n hw.ncpu 2>/dev/null || echo "unknown")
+        arch=$(uname -m 2>/dev/null || echo "unknown")
+    elif command -v lscpu &>/dev/null; then
         cores=$(lscpu 2>/dev/null | awk '/^CPU\(s\):/ {print $2}')
         arch=$(lscpu 2>/dev/null | awk '/^Architecture:/ {print $2}')
     elif [[ -f /proc/cpuinfo ]]; then
@@ -162,12 +211,35 @@ get_cpu_info() {
         cores=$(nproc 2>/dev/null || echo "unknown")
         arch=$(uname -m 2>/dev/null || echo "unknown")
     fi
-    
+
     echo "${cores} cores (${arch})"
 }
 
 get_memory_info() {
-    if command -v free &>/dev/null; then
+    local os_type=$(uname -s)
+
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS
+        local total_mem=$(sysctl -n hw.memsize 2>/dev/null)
+        if [[ -n "$total_mem" ]]; then
+            # Convert bytes to GB
+            local total_gb=$((total_mem / 1024 / 1024 / 1024))
+
+            # Get used memory from vm_stat
+            local page_size=$(pagesize 2>/dev/null || echo 4096)
+            local vm_stat=$(vm_stat 2>/dev/null)
+            local pages_free=$(echo "$vm_stat" | awk '/Pages free/ {print $3}' | tr -d '.')
+            local pages_inactive=$(echo "$vm_stat" | awk '/Pages inactive/ {print $3}' | tr -d '.')
+            local pages_speculative=$(echo "$vm_stat" | awk '/Pages speculative/ {print $3}' | tr -d '.')
+
+            local free_mem=$(( (pages_free + pages_inactive + pages_speculative) * page_size / 1024 / 1024 / 1024 ))
+            local used_mem=$((total_gb - free_mem))
+
+            echo "${total_gb}GB (${used_mem}GB used, ${free_mem}GB free)"
+        else
+            echo "Memory info unavailable"
+        fi
+    elif command -v free &>/dev/null; then
         local mem_info=$(free -h 2>/dev/null | awk '/^Mem:/ {printf "%s (%s used, %s free)", $2, $3, $7}')
         echo "$mem_info"
     else
@@ -198,9 +270,30 @@ get_disk_info() {
 
 get_users() {
     local users=()
-    if [[ -f /etc/passwd ]]; then
+    local os_type=$(uname -s)
+    local min_uid=1000
+
+    # macOS uses UID >= 501 for regular users and different user database
+    if [[ "$os_type" == "Darwin" ]]; then
+        min_uid=501
+        # Use dscl to list users on macOS
+        if command -v dscl &>/dev/null; then
+            while IFS= read -r username; do
+                # Skip system users starting with _
+                [[ "$username" =~ ^_ ]] && continue
+                [[ "$username" == "nobody" ]] && continue
+                [[ "$username" == "daemon" ]] && continue
+                [[ "$username" == "root" ]] && continue
+
+                local uid=$(dscl . -read "/Users/$username" UniqueID 2>/dev/null | awk '{print $2}')
+                if [[ -n "$uid" ]] && [[ $uid -ge $min_uid ]]; then
+                    users+=("$username")
+                fi
+            done < <(dscl . -list /Users 2>/dev/null)
+        fi
+    elif [[ -f /etc/passwd ]]; then
         while IFS=: read -r username _ uid _ _ home _; do
-            if [[ $uid -ge 1000 ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
+            if [[ $uid -ge $min_uid ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
                 users+=("$username")
             fi
         done < /etc/passwd
@@ -233,9 +326,30 @@ get_users() {
 
 get_users_formatted() {
     local users=()
-    if [[ -f /etc/passwd ]]; then
+    local os_type=$(uname -s)
+    local min_uid=1000
+
+    # macOS uses UID >= 501 for regular users and different user database
+    if [[ "$os_type" == "Darwin" ]]; then
+        min_uid=501
+        # Use dscl to list users on macOS
+        if command -v dscl &>/dev/null; then
+            while IFS= read -r username; do
+                # Skip system users starting with _
+                [[ "$username" =~ ^_ ]] && continue
+                [[ "$username" == "nobody" ]] && continue
+                [[ "$username" == "daemon" ]] && continue
+                [[ "$username" == "root" ]] && continue
+
+                local uid=$(dscl . -read "/Users/$username" UniqueID 2>/dev/null | awk '{print $2}')
+                if [[ -n "$uid" ]] && [[ $uid -ge $min_uid ]]; then
+                    users+=("$username")
+                fi
+            done < <(dscl . -list /Users 2>/dev/null)
+        fi
+    elif [[ -f /etc/passwd ]]; then
         while IFS=: read -r username _ uid _ _ home _; do
-            if [[ $uid -ge 1000 ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
+            if [[ $uid -ge $min_uid ]] && [[ $uid -ne 65534 ]] && [[ "$username" != "nobody" ]]; then
                 users+=("$username")
             fi
         done < /etc/passwd
@@ -289,13 +403,27 @@ check_service_status() {
 
 check_port_listening() {
     local ports=("$@")
+    local os_type=$(uname -s)
+
     for port in "${ports[@]}"; do
         if command -v ss &>/dev/null; then
             if ss -tlnp 2>/dev/null | grep -q ":$port "; then
                 return 0
             fi
         elif command -v netstat &>/dev/null; then
-            if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+            if [[ "$os_type" == "Darwin" ]]; then
+                # macOS: netstat doesn't have -p flag
+                if netstat -an 2>/dev/null | grep -q "LISTEN.*[.:]$port "; then
+                    return 0
+                fi
+            else
+                if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+                    return 0
+                fi
+            fi
+        elif command -v lsof &>/dev/null; then
+            # Fallback for macOS
+            if lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -q "LISTEN"; then
                 return 0
             fi
         fi
@@ -348,7 +476,7 @@ apache2:apache2 httpd:Apache
 nginx:nginx:NGINX
 rsyslog:rsyslog:Rsyslog
 fail2ban:fail2ban-server:Fail2ban
-docker:docker:Docker
+docker:docker com.docker.backend:Docker
 ftp:vsftpd proftpd pure-ftpd:FTP
 sftp:sshd:SFTP
 mysql:mysqld mysql:MySQL
